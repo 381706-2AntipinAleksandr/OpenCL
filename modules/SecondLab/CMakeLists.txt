@@ -4,10 +4,15 @@ project(SecondLab)
 #set(PROJECT_NAME SecondLab)
 #set(CMAKE_CXX_STANDARD 17)
 
-add_executable(${PROJECT_NAME} src/main.cpp)
+add_executable(${PROJECT_NAME} src/main.cpp ${CMAKE_SOURCE_DIR}/init.h ${CMAKE_SOURCE_DIR}/init.cpp)
 
 find_package(OpenCL REQUIRED)
-target_link_libraries(${PROJECT_NAME} OpenCL::OpenCL)
+find_package(OpenMP)
+#target_link_libraries(${PROJECT_NAME} OpenCL::OpenCL)
+if (OpenCL_FOUND AND OpenMP_CXX_FOUND)
+    message("Found libraries")
+    target_link_libraries(${PROJECT_NAME} OpenCL::OpenCL OpenMP::OpenMP_CXX)
+endif()
 
 #set_target_properties(${PROJECT_NAME} PROPERTIES RUNTIME_OUTPUT_DIR ${CMAKE_BINARY_DIR}/bin/)
 

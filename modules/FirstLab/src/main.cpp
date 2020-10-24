@@ -217,7 +217,7 @@ int main(int argc, char** argv) {
         clReleaseContext(context);
         return -1;
     }
-    if (clEnqueueWriteBuffer(queue, input_buffer, CL_TRUE, 0, sizeof(int) * size, input, 0, nullptr, nullptr)) {
+    if (clEnqueueWriteBuffer(queue, input_buffer, CL_TRUE, 0, sizeof(float) * size, input, 0, nullptr, nullptr)) {
         std::cerr << "ERROR: EnqueueWriteBuffer return error: " << std::endl;
         clReleaseMemObject(output_buffer);
         clReleaseMemObject(input_buffer);
@@ -270,6 +270,7 @@ int main(int argc, char** argv) {
         clReleaseContext(context);
         return -1;
     }
+    group = 64; // ?????????????
     if (clEnqueueNDRangeKernel(queue, _kernel, 1, nullptr, &size, &group, 0, nullptr, nullptr)) {
         std::cerr << "ERROR: cannot execute kernel: " << std::endl;
         clReleaseMemObject(output_buffer);
