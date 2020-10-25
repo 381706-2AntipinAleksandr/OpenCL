@@ -33,8 +33,8 @@ OCLInitialization::OCLInitialization(const std::string& path, const size_t group
         error_code = RED_CODE;
         return;
     }
-    PlatformInfo();
-    std::cout << "<----------------------->" << std::endl;
+    // PlatformInfo();
+    //std::cout << "<----------------------->" << std::endl;
 
     // Context
     cl_context_properties properties[] = { CL_CONTEXT_PLATFORM, reinterpret_cast<cl_context_properties>(platform), 0 };
@@ -71,8 +71,8 @@ OCLInitialization::OCLInitialization(const std::string& path, const size_t group
         error_code = RED_CODE;
         return;
     }
-    DeviceInfo();
-    std::cout << "<----------------------->" << std::endl;
+    // DeviceInfo();
+    //std::cout << "<----------------------->" << std::endl;
 
     // Command Queue
     queue = clCreateCommandQueue(context, device, 0, &error_code);
