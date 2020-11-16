@@ -7,8 +7,13 @@
 #include "init.h"
 
 
-OCLInitialization::OCLInitialization(const std::string& path, const size_t group_size)
-    : error_code(0), group(group_size), kernels{}, buffers{} {
+OCLInitialization::OCLInitialization(const std::string& path, const char dim, const size_t* group_size, const size_t* global_size)
+    : error_code(0), dimension(dim), group(new size_t[dimension]), gl_size(new size_t[dimension]), kernels{}, buffers{} {
+
+    for (char i = 0; i < dimension; ++i) {
+        group[i] = group_size[i];
+        gl_size[i] = global_size[i];
+    }
 
     // Platform:
     cl_uint platformCount;
@@ -139,8 +144,8 @@ void OCLInitialization::AddKernel(const std::string& kernel_name) {
     }
 }
 
-void OCLInitialization::ExecuteKernel(const cl_kernel& kernel, const size_t size) {
-    if (clGetKernelWorkGroupInfo(kernel, device, CL_KERNEL_WORK_GROUP_SIZE, sizeof(size_t), &group, nullptr)) {
+void OCLInitialization::ExecuteKernel(const cl_kernel& kernel) {
+    if (group == 0 && clGetKernelWorkGroupInfo(kernel, device, CL_KERNEL_WORK_GROUP_SIZE, sizeof(size_t), &group, nullptr)) {
         std::cerr << "ERROR: in clGetKernelWorkGroupInfo: " << std::endl;
         for (size_t i = 0; i < buffers.size(); ++i)
             clReleaseMemObject(buffers[i]);
@@ -152,7 +157,7 @@ void OCLInitialization::ExecuteKernel(const cl_kernel& kernel, const size_t size
         error_code = RED_CODE;
         return;
     }
-    if (clEnqueueNDRangeKernel(queue, kernel, 1, nullptr, &size, &group, 0, nullptr, nullptr)) {
+    if (clEnqueueNDRangeKernel(queue, kernel, dimension, nullptr, gl_size, group, 0, nullptr, nullptr)) {
         std::cerr << "ERROR: cannot execute kernel: " << std::endl;
         for (size_t i = 0; i < buffers.size(); ++i)
             clReleaseMemObject(buffers[i]);

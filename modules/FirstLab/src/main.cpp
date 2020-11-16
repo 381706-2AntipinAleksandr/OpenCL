@@ -192,11 +192,11 @@ int main(int argc, char** argv) {
     }
 
     // input and output values
-    const size_t size = 2000;
+    const size_t size = 1024;
     int input[size];
     int output[size];
     for (int i = 0; i < size; ++i) {
-        input[i] = size - i - 1;
+        input[i] = 0;
     }
     cl_mem input_buffer = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(float) * size, nullptr, &error_code);
     if (error_code) {
@@ -270,7 +270,7 @@ int main(int argc, char** argv) {
         clReleaseContext(context);
         return -1;
     }
-    group = 64; // ?????????????
+    //group = 64; 
     if (clEnqueueNDRangeKernel(queue, _kernel, 1, nullptr, &size, &group, 0, nullptr, nullptr)) {
         std::cerr << "ERROR: cannot execute kernel: " << std::endl;
         clReleaseMemObject(output_buffer);

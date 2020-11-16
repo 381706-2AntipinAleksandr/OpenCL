@@ -2,6 +2,7 @@
 #include <omp.h>
 #include <iostream>
 #include <string>
+#include <random>
 #include "../../../init.h"
 
 void SequentialSaxpy(const unsigned int n, const float a, float* x, const int incx, float* y, const int incy) {
@@ -12,20 +13,22 @@ void SequentialSaxpy(const unsigned int n, const float a, float* x, const int in
 void ParallelOpenMPSaxpy(const unsigned int n, const float a, float* x, const int incx, float* y, const int incy) {
     int num_tr = omp_get_max_threads();
     //std::cout << num_tr << std::endl;
-    #pragma omp parallel num_threads(num_tr)
+#pragma omp parallel num_threads(num_tr)
     {
-        #pragma omp for schedule(static, n / num_tr)
-            for (int i = 0; i < n; ++i) {
-                y[i * incy] = y[i * incy] + a * x[i * incx];
-                //std::cout << y[i * incy] << " - " << omp_get_thread_num() << std::endl;
-            }
+#pragma omp for schedule(static, n / num_tr)
+        for (int i = 0; i < n; ++i) {
+            y[i * incy] = y[i * incy] + a * x[i * incx];
+            //std::cout << y[i * incy] << " - " << omp_get_thread_num() << std::endl;
+        }
     }
 }
 
 void ParallelOpenCLSaxpy(const char* path, const size_t group, const unsigned int n, const float a,
     float* x, const int incx, const size_t size_x, float* y, const int incy, const size_t size_y) {
 
-    OCLInitialization pr(path, group);
+    size_t group_size[] = { group };
+    size_t size[] = { n };
+    OCLInitialization pr(path, 1, group_size, size);
     pr.AddKernel("saxpy");
     pr.AddBuffer<float>(CL_MEM_READ_WRITE, size_y);
     pr.AddBuffer<float>(CL_MEM_READ_ONLY, size_x);
@@ -38,7 +41,7 @@ void ParallelOpenCLSaxpy(const char* path, const size_t group, const unsigned in
     pr.SetKernelArg(pr.GetKernel(0), 4, &pr.GetBuffer(0));
     pr.SetKernelArg(pr.GetKernel(0), 5, &incy);
     double start = omp_get_wtime();
-    pr.ExecuteKernel(pr.GetKernel(0), n);
+    pr.ExecuteKernel(pr.GetKernel(0));
     double end = omp_get_wtime();
     std::cout << "GPU float time - " << end - start << std::endl;
     pr.ReadElementsFromBuffer(0, size_y, y);
@@ -65,7 +68,9 @@ void ParallelOpenMPDaxpy(const unsigned int n, const double a, double* x, const 
 void ParallelOpenCLDaxpy(const char* path, const size_t group, const unsigned int n, const double a,
     double* x, const int incx, const size_t size_x, double* y, const int incy, const size_t size_y) {
 
-    OCLInitialization pr(path, group);
+    size_t group_size[] = { group };
+    size_t size[] = { n };
+    OCLInitialization pr(path, 1, group_size, size);
     pr.AddKernel("daxpy");
     pr.AddBuffer<double>(CL_MEM_READ_WRITE, size_y);
     pr.AddBuffer<double>(CL_MEM_READ_ONLY, size_x);
@@ -78,7 +83,7 @@ void ParallelOpenCLDaxpy(const char* path, const size_t group, const unsigned in
     pr.SetKernelArg(pr.GetKernel(0), 4, &pr.GetBuffer(0));
     pr.SetKernelArg(pr.GetKernel(0), 5, &incy);
     double start = omp_get_wtime();
-    pr.ExecuteKernel(pr.GetKernel(0), n);
+    pr.ExecuteKernel(pr.GetKernel(0));
     double end = omp_get_wtime();
     std::cout << "GPU float time - " << end - start << std::endl;
     pr.ReadElementsFromBuffer(0, size_y, y);
@@ -86,14 +91,16 @@ void ParallelOpenCLDaxpy(const char* path, const size_t group, const unsigned in
 
 template <typename T>
 bool IsEqual(const T* a, const T* b, const size_t n) {
-    for (size_t i = 0; i < n; ++i)
-        if (a[i] != b[i])
+    for (size_t i = 0; i < n; ++i) {
+        //printf("%d - %lf = %lf\n", i, a[i], b[i]);
+        if (std::abs(a[i] - b[i]) > 0.000001)
             return false;
+    }
     return true;
 }
 
 int main(int argc, char** argv) {
-    const unsigned int size = 120000000;
+    const unsigned int size = 100000000;
 
     // init float
     float* y_seq = new float[size];
@@ -117,16 +124,23 @@ int main(int argc, char** argv) {
 
     float f = 2.0;
     double d = 2.0;
+    double lower_bound = 0;
+    double upper_bound = 1000;
+    std::cout << "gen start" << std::endl;
+    std::uniform_real_distribution<float> unif_f(lower_bound, upper_bound);
+    std::uniform_real_distribution<double> unif_d(lower_bound, upper_bound);
+    std::default_random_engine re;
     for (int i = 0; i < size; ++i) {
-        float num_f = static_cast<float>(i);
-        double num_d = static_cast<double>(i);
+        float num_f = unif_f(re);
+        double num_d = unif_d(re);
 
         y_seq[i] = y_par_cpu[i] = y_par_gpu[i] = num_f;
         y_seq_d[i] = y_par_cpu_d[i] = y_par_gpu_d[i] = num_d;
 
         x_seq[i] = x_par_cpu[i] = x_par_gpu[i] = static_cast<float>(size - 1) - num_f;
-        x_seq_d[i] = x_par_cpu_d[i] = x_par_gpu_d[i] = static_cast<float>(size - 1) - num_d;
+        x_seq_d[i] = x_par_cpu_d[i] = x_par_gpu_d[i] = static_cast<double>(size - 1) - num_d;
     }
+    std::cout << "gen end" << std::endl;
     int incx = 1, incy = 1;
 
     double start = omp_get_wtime();
@@ -142,7 +156,7 @@ int main(int argc, char** argv) {
     //end = omp_get_wtime();
     //std::cout << "GPU float time - " << end - start << std::endl;
 
-    std::cout << "Float compare - " << (IsEqual(y_seq, y_par_gpu, size) == true ? "true" : "false") << std::endl ;
+    std::cout << "Float compare - " << (IsEqual(y_seq, y_par_gpu, size) == true ? "true" : "false") << std::endl;
 
     start = omp_get_wtime();
     SequentialDaxpy(size, d, x_seq_d, incx, y_seq_d, incy);
