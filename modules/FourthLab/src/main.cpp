@@ -8,7 +8,7 @@
 #include "../../../init.h"
 
 float isZero(const float number) {
-    if (number < 0.00000000001)
+    if (number < 0.0000000000001)
         return 0.0;
     else
         return number;
@@ -17,8 +17,20 @@ float isZero(const float number) {
 bool IsEqual(const float* a, const float* b, const size_t n, const float eps) {
     for (size_t i = 0; i < n; ++i) {
         if (std::abs(a[i] - b[i]) > eps) {
-            //std::cout << a[i] << "   " << b[i] << std::endl;
             printf("%d - %lf   %lf\n", i, a[i], b[i]);
+            return false;
+        }
+    }
+    return true;
+}
+
+bool CheckResult(float* A, float* b, float* x, const size_t size, const float eps) {
+    for (size_t i = 0; i < size; ++i) {
+        float b_res = 0.0;
+        for (size_t j = 0; j < size; ++j)
+            b_res += A[i * size + j] * x[j];
+        if (std::abs(b_res - b[i]) > eps) {
+            std::cout << "i - " << i << ", " << b_res << " - " << b[i] << "\t";
             return false;
         }
     }
@@ -54,32 +66,32 @@ void SequentialGaussMethod(float* A, float* b, float* x, const size_t size) {
             bool moreRow = leaderRow >= 0.0 ? true : false;
             if ((moreElem && moreRow) || (!moreElem && !moreRow)) {
                 for (size_t cols = k; cols < size; ++cols) {
-                    A[rows * size + cols] = isZero(A[rows * size + cols] -
+                    A[rows * size + cols] = /*isZero*/(A[rows * size + cols] -
                         A[k * size + cols] * std::abs(leaderRow / leaderElem));
                 }
-                b[rows] = isZero(b[rows] - b[k] * std::abs(leaderRow / leaderElem));
+                b[rows] = /*isZero*/(b[rows] - b[k] * std::abs(leaderRow / leaderElem));
             }
             else {
                 for (size_t cols = k; cols < size; ++cols) {
-                    A[rows * size + cols] = isZero(A[rows * size + cols] +
+                    A[rows * size + cols] = /*isZero*/(A[rows * size + cols] +
                         A[k * size + cols] * std::abs(leaderRow / leaderElem));
                 }
-                b[rows] = isZero(b[rows] + b[k] * std::abs(leaderRow / leaderElem));
+                b[rows] = /*isZero*/(b[rows] + b[k] * std::abs(leaderRow / leaderElem));
             }
         }
     }
     for (int i = size - 1; i >= 0; --i) {
         float res = 0.0;
         for (size_t j = size - 1; j >= i + 1; --j) {
-            res = isZero(res + A[i * size + j] * x[j]);
+            res = /*isZero*/(res + A[i * size + j] * x[j]);
         }
-        res = isZero((b[i] - res) / A[i * size + i]);
+        res = /*isZero*/((b[i] - res) / A[i * size + i]);
         x[i] = res;
     }
 }
 
 void ParallelOpenCLJacobiEPS(const char* path, const size_t group, const unsigned int size,
-                             float* A, float* b, float* x, const float eps) {
+                             float* A, float* b, float* x, const double eps) {
     size_t group_size[] = { group };
     size_t size_n[] = { size };
     OCLInitialization pr(path, 1, group_size, size_n);
@@ -126,7 +138,10 @@ void ParallelOpenCLJacobiIter(const char* path, const size_t group, const unsign
 
 
 int main(int argc, char** argv) {
-    const size_t size = 1024;
+    const size_t size = 256;
+
+    float* A_seq_com = new float[size * size];
+    float* b_seq_com = new float[size];
 
     float* A_seq = new float[size * size];
     float* b_seq = new float[size];
@@ -147,13 +162,13 @@ int main(int argc, char** argv) {
     std::default_random_engine re;
     for (int i = 0; i < size * size; ++i) {
         float num_f = unif_f(re);
-        A_seq[i] = A_par_gpu_eps[i] = A_par_gpu_iter[i] = num_f;
+        A_seq_com[i] = A_seq[i] = A_par_gpu_eps[i] = A_par_gpu_iter[i] = num_f;
         if (i % size == i / size)
-            A_seq[i] = A_par_gpu_eps[i] = A_par_gpu_iter[i] = static_cast<float>(size * 10) + num_f;
+            A_seq_com[i] = A_seq[i] = A_par_gpu_eps[i] = A_par_gpu_iter[i] = static_cast<float>(size * 10) + num_f;
     }
     for (int i = 0; i < size; ++i) {
         float num_f = unif_f(re);
-        b_seq[i] = b_par_gpu_eps[i] = b_par_gpu_iter[i] = static_cast<float>(10.0 - num_f);
+        b_seq_com[i] = b_seq[i] = b_par_gpu_eps[i] = b_par_gpu_iter[i] = static_cast<float>(10.0 - num_f);
     }
     std::cout << "gen end" << std::endl;
 
@@ -161,12 +176,18 @@ int main(int argc, char** argv) {
     SequentialGaussMethod(A_seq, b_seq, x_seq, size);
     double end = omp_get_wtime();
     std::cout << "Sequential Gauss method time - " << end - start << std::endl;
+    std::cout << "Gauss check result - " << (CheckResult(A_seq_com, b_seq_com, x_seq, size, 0.001) ? "true" : "false") << std::endl;
 
-    ParallelOpenCLJacobiEPS(argv[0], 256, size, A_par_gpu_eps, b_par_gpu_eps, x_par_gpu_eps, 0.0001);
-    std::cout << "Jacobi EPS compare - " << (IsEqual(x_seq, x_par_gpu_eps, size, 0.001) == true ? "true" : "false") << std::endl;
+    ParallelOpenCLJacobiEPS(argv[0], 256, size, A_par_gpu_eps, b_par_gpu_eps, x_par_gpu_eps, 0.00000001);
+    std::cout << "Jacobi EPS compare with Gauss - " << (IsEqual(x_seq, x_par_gpu_eps, size, 0.00001) ? "true" : "false") << std::endl;
+    std::cout << "Jacobi EPS check result - " << (CheckResult(A_par_gpu_eps, b_par_gpu_eps, x_par_gpu_eps, size, 0.001) ? "true" : "false") << std::endl;
 
-    ParallelOpenCLJacobiIter(argv[0], 256, size, A_par_gpu_iter, b_par_gpu_iter, x_par_gpu_iter, 30);
-    std::cout << "Jacobi Iter compare - " << (IsEqual(x_seq, x_par_gpu_iter, size, 0.001) == true ? "true" : "false") << std::endl;
+    ParallelOpenCLJacobiIter(argv[0], 256, size, A_par_gpu_iter, b_par_gpu_iter, x_par_gpu_iter, 45);
+    std::cout << "Jacobi Iter compare with Gauss - " << (IsEqual(x_seq, x_par_gpu_iter, size, 0.001) ? "true" : "false") << std::endl;
+    std::cout << "Jacobi Iter check result - " << (CheckResult(A_par_gpu_iter, b_par_gpu_iter, x_par_gpu_iter, size, 0.001) ? "true" : "false") << std::endl;
+
+    delete[] A_seq_com;
+    delete[] b_seq_com;
 
     delete[] A_seq;
     delete[] b_seq;
