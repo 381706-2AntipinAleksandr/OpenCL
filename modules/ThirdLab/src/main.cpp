@@ -3,6 +3,8 @@
 #include <iostream>
 #include <string>
 #include <random>
+#include <fstream>
+#include <sstream>
 #include "../../../init.h"
 
 void SequentialMatrixMultiplication(const size_t n, const float* a, const float* b, float* c) {
@@ -53,19 +55,64 @@ void ParallelOpenCLMatrixMultiplication(const char* path, const size_t group, co
     pr.ReadElementsFromBuffer(2, size * size, c);
 }
 
+void ParallelOpenCLMatrixMultiplicationOptimized(const char* path, const size_t group, const unsigned int size,
+                                                 float* a, float* b, float* c) {
+    size_t group_size[] = { group, group };
+    size_t size_n[] = { size, size };
+    OCLInitialization pr(path, 2, group_size, size_n);
+    pr.AddKernel("MatrixMultiplicationBlock");
+    pr.AddBuffer<float>(CL_MEM_READ_WRITE, size * size);
+    pr.AddBuffer<float>(CL_MEM_READ_WRITE, size * size);
+    pr.AddBuffer<float>(CL_MEM_WRITE_ONLY, size * size);
+    pr.WriteElementsToBuffer(0, size * size, a);
+    pr.WriteElementsToBuffer(1, size * size, b);
+    pr.SetKernelArg(pr.GetKernel(0), 0, &pr.GetBuffer(0));
+    pr.SetKernelArg(pr.GetKernel(0), 1, &pr.GetBuffer(1));
+    pr.SetKernelArg(pr.GetKernel(0), 2, &pr.GetBuffer(2));
+    pr.SetKernelArg(pr.GetKernel(0), 3, &size);
+    double start = omp_get_wtime();
+    pr.ExecuteKernel(pr.GetKernel(0));
+    double end = omp_get_wtime();
+    std::cout << "GPU optimized float time - " << end - start << std::endl;
+    pr.ReadElementsFromBuffer(2, size * size, c);
+}
+
+void ParallelOpenCLMatrixMultiplicationImage(const char* path, const size_t group, const unsigned int size,
+                                             float* a, float* b, float* c) {
+    size_t group_size[] = { group, group, 1 };
+    size_t size_n[] = { size, size, 1 };
+    OCLInitialization pr(path, 3, group_size, size_n);
+    pr.AddKernel("MatrixMultiplicationImage");
+    pr.AddImage<float>(CL_MEM_READ_ONLY, size, size);
+    pr.AddImage<float>(CL_MEM_READ_ONLY, size, size);
+    pr.AddImage<float>(CL_MEM_WRITE_ONLY, size, size);
+    pr.WriteElementsToImage(0, size, size, a);
+    pr.WriteElementsToImage(1, size, size, b);
+    pr.SetKernelArg(pr.GetKernel(0), 0, &pr.GetImage(0));
+    pr.SetKernelArg(pr.GetKernel(0), 1, &pr.GetImage(1));
+    pr.SetKernelArg(pr.GetKernel(0), 2, &pr.GetImage(2));
+    pr.SetKernelArg(pr.GetKernel(0), 3, &size);
+    double start = omp_get_wtime();
+    pr.ExecuteKernel(pr.GetKernel(0));
+    double end = omp_get_wtime();
+    std::cout << "GPU optimized by image float time - " << end - start << std::endl;
+    pr.ReadElementsFromImage(2, size, size, c);
+}
+
 bool IsEqual(const float* a, const float* b, const size_t n) {
     for (size_t i = 0; i < n; ++i) {
         if (std::abs(a[i] - b[i]) > 0.01) {
             //std::cout << a[i] << "   " << b[i] << std::endl;
-            printf("%lf   %lf\n", a[i], b[i]);
+            printf("%d - %lf   %lf\n", i, a[i], b[i]);
             return false;
         }
     }
     return true;
 }
 
+
 int main(int argc, char** argv) {
-    const unsigned int size = 2048;
+    const unsigned int size = 1024;
 
     // init float
     float* a_seq = new float[size * size];
@@ -80,6 +127,14 @@ int main(int argc, char** argv) {
     float* b_par_gpu = new float[size * size];
     float* c_par_gpu = new float[size * size];
 
+    float* a_par_gpu_opt = new float[size * size];
+    float* b_par_gpu_opt = new float[size * size];
+    float* c_par_gpu_opt = new float[size * size];
+
+    float* a_par_gpu_img = new float[size * size];
+    float* b_par_gpu_img = new float[size * size];
+    float* c_par_gpu_img = new float[size * size];
+
     float lower_bound = -10.0;
     float upper_bound = 10.0;
     std::cout << "gen start" << std::endl;
@@ -88,9 +143,9 @@ int main(int argc, char** argv) {
     for (int i = 0; i < size * size; ++i) {
         float num_f = unif_f(re);
 
-        a_seq[i] = a_par_cpu[i] = a_par_gpu[i] = num_f;
+        a_seq[i] = a_par_cpu[i] = a_par_gpu[i] = a_par_gpu_opt[i] = a_par_gpu_img[i] = num_f;
 
-        b_seq[i] = b_par_cpu[i] = b_par_gpu[i] = static_cast<float>(10.0) - num_f;
+        b_seq[i] = b_par_cpu[i] = b_par_gpu[i] = b_par_gpu_opt[i] = b_par_gpu_img[i] = static_cast<float>(10.0) - num_f;
     }
     std::cout << "gen end" << std::endl;
 
@@ -103,8 +158,13 @@ int main(int argc, char** argv) {
     end = omp_get_wtime();
     std::cout << "OpenMP float time - " << end - start << std::endl;
     ParallelOpenCLMatrixMultiplication(argv[0], 16, size, a_par_gpu, b_par_gpu, c_par_gpu);
-
     std::cout << "Float compare - " << (IsEqual(c_seq, c_par_gpu, size * size) == true ? "true" : "false") << std::endl;
+
+    ParallelOpenCLMatrixMultiplicationOptimized(argv[0], 16, size, a_par_gpu_opt, b_par_gpu_opt, c_par_gpu_opt);
+    std::cout << "Float compare optimized - " << (IsEqual(c_seq, c_par_gpu_opt, size * size) == true ? "true" : "false") << std::endl;
+
+    ParallelOpenCLMatrixMultiplicationImage(argv[0], 16, size, a_par_gpu_img, b_par_gpu_img, c_par_gpu_img);
+    std::cout << "Float compare image - " << (IsEqual(c_seq, c_par_gpu_img, size * size) == true ? "true" : "false") << std::endl;
 
     delete[] a_seq;
     delete[] b_seq;
@@ -117,5 +177,14 @@ int main(int argc, char** argv) {
     delete[] a_par_gpu;
     delete[] b_par_gpu;
     delete[] c_par_gpu;
+
+    delete[] a_par_gpu_opt;
+    delete[] b_par_gpu_opt;
+    delete[] c_par_gpu_opt;
+
+    delete[] a_par_gpu_img;
+    delete[] b_par_gpu_img;
+    delete[] c_par_gpu_img;
+
     return 0;
 }

@@ -8,7 +8,7 @@
 
 
 OCLInitialization::OCLInitialization(const std::string& path, const char dim, const size_t* group_size, const size_t* global_size)
-    : error_code(0), dimension(dim), group(new size_t[dimension]), gl_size(new size_t[dimension]), kernels{}, buffers{} {
+    : error_code(0), dimension(dim), group(new size_t[dimension]), gl_size(new size_t[dimension]), kernels{}, buffers{}, images {} {
 
     for (char i = 0; i < dimension; ++i) {
         group[i] = group_size[i];
@@ -39,7 +39,7 @@ OCLInitialization::OCLInitialization(const std::string& path, const char dim, co
         return;
     }
     // PlatformInfo();
-    //std::cout << "<----------------------->" << std::endl;
+    // std::cout << "<----------------------->" << std::endl;
 
     // Context
     cl_context_properties properties[] = { CL_CONTEXT_PLATFORM, reinterpret_cast<cl_context_properties>(platform), 0 };
@@ -77,7 +77,7 @@ OCLInitialization::OCLInitialization(const std::string& path, const char dim, co
         return;
     }
     // DeviceInfo();
-    //std::cout << "<----------------------->" << std::endl;
+    // std::cout << "<----------------------->" << std::endl;
 
     // Command Queue
     queue = clCreateCommandQueue(context, device, 0, &error_code);
@@ -103,6 +103,9 @@ OCLInitialization::OCLInitialization(const std::string& path, const char dim, co
     }
     if (clBuildProgram(program, 1, &device, nullptr, nullptr, nullptr)) {
         std::cerr << "ERROR: OpenCL Program was not build" << std::endl;
+        char log[1024];
+        clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, 1024, log, nullptr);
+        std::cerr << log << std::endl;
         clReleaseProgram(program);
         clReleaseCommandQueue(queue);
         clReleaseContext(context);
@@ -112,9 +115,13 @@ OCLInitialization::OCLInitialization(const std::string& path, const char dim, co
 }
 
 OCLInitialization::~OCLInitialization() {
+    delete[] group;
+    delete[] gl_size;
     if (error_code != RED_CODE) {
         for (size_t i = 0; i < buffers.size(); ++i)
             clReleaseMemObject(buffers[i]);
+        for (size_t i = 0; i < images.size(); ++i)
+            clReleaseMemObject(images[i]);
         for (size_t i = 0; i < kernels.size(); ++i)
             clReleaseKernel(kernels[i]);
         clReleaseProgram(program);
@@ -130,6 +137,10 @@ cl_kernel& OCLInitialization::GetKernel(const size_t number) {
 
 cl_mem& OCLInitialization::GetBuffer(const size_t number) {
     return buffers[number];
+}
+
+cl_mem& OCLInitialization::GetImage(const size_t number) {
+    return images[number];
 }
 
 void OCLInitialization::AddKernel(const std::string& kernel_name) {
@@ -149,6 +160,8 @@ void OCLInitialization::ExecuteKernel(const cl_kernel& kernel) {
         std::cerr << "ERROR: in clGetKernelWorkGroupInfo: " << std::endl;
         for (size_t i = 0; i < buffers.size(); ++i)
             clReleaseMemObject(buffers[i]);
+        for (size_t i = 0; i < images.size(); ++i)
+            clReleaseMemObject(images[i]);
         for (size_t i = 0; i < kernels.size(); ++i)
             clReleaseKernel(kernels[i]);
         clReleaseProgram(program);
@@ -161,6 +174,8 @@ void OCLInitialization::ExecuteKernel(const cl_kernel& kernel) {
         std::cerr << "ERROR: cannot execute kernel: " << std::endl;
         for (size_t i = 0; i < buffers.size(); ++i)
             clReleaseMemObject(buffers[i]);
+        for (size_t i = 0; i < images.size(); ++i)
+            clReleaseMemObject(images[i]);
         for (size_t i = 0; i < kernels.size(); ++i)
             clReleaseKernel(kernels[i]);
         clReleaseProgram(program);
@@ -173,6 +188,8 @@ void OCLInitialization::ExecuteKernel(const cl_kernel& kernel) {
         std::cerr << "ERROR: while finishing all processors: " << std::endl;
         for (size_t i = 0; i < buffers.size(); ++i)
             clReleaseMemObject(buffers[i]);
+        for (size_t i = 0; i < images.size(); ++i)
+            clReleaseMemObject(images[i]);
         for (size_t i = 0; i < kernels.size(); ++i)
             clReleaseKernel(kernels[i]);
         clReleaseProgram(program);
@@ -263,12 +280,12 @@ void OCLInitialization::DeviceInfo() {
     }
 
     std::cout << "Name: " << device_name << std::endl
-        << "Device OpenCL Version: " << device_ocl_vercion << std::endl
-        << "Maximun Compute Units: " << compute_units << std::endl
-        << "Local Memory Size: " << local_mem_size / 1024 << " KB" << std::endl
-        << "Global Memory Size: " << global_mem_size / 1048576 << " MB" << std::endl
-        << "Max Work Group Total Size: " << work_group_size << std::endl
-        << "Max Work-group Dims: ";
+              << "Device OpenCL Version: " << device_ocl_vercion << std::endl
+              << "Maximun Compute Units: " << compute_units << std::endl
+              << "Local Memory Size: " << local_mem_size / 1024 << " KB" << std::endl
+              << "Global Memory Size: " << global_mem_size / 1048576 << " MB" << std::endl
+              << "Max Work Group Total Size: " << work_group_size << std::endl
+              << "Max Work-group Dims: ";
     for (size_t i = 0; i < dimention; ++i)
         std::cout << dimention_work_sizes[i] << ", ";
     std::cout << std::endl;
