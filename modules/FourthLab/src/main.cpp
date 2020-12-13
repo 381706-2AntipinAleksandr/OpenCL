@@ -90,6 +90,26 @@ void SequentialGaussMethod(float* A, float* b, float* x, const size_t size) {
     }
 }
 
+void SequentialJacobiMethod(float* A, float* b, float* x, const size_t size, const int iter) {
+    for (size_t i = 0; i < size; ++i) {
+        float x_k = 1.0;
+        float x_k_1 = 0.0;
+        for (int j = 0; j < iter; ++j) {
+            float sum = 0.0;
+            for (size_t k = 0; k < size; ++k) {
+                if (k == i)
+                    continue;
+                sum += x_k * A[i * size + k];
+            }
+            //printf("%f\n", sum);
+            x_k = x_k_1;
+            x_k_1 = (b[i] - sum) / A[i * size + i];
+        }
+        //printf("%f\n", x_k_1);
+        x[i] = x_k_1;
+    }
+}
+
 void ParallelOpenCLJacobiEPS(const char* path, const size_t group, const unsigned int size,
                              float* A, float* b, float* x, const double eps) {
     size_t group_size[] = { group };
@@ -138,7 +158,7 @@ void ParallelOpenCLJacobiIter(const char* path, const size_t group, const unsign
 
 
 int main(int argc, char** argv) {
-    const size_t size = 4096;
+    const size_t size = 2048;
 
     float* A_seq_com = new float[size * size];
     float* b_seq_com = new float[size];
@@ -155,8 +175,8 @@ int main(int argc, char** argv) {
     float* b_par_gpu_iter = new float[size];
     float* x_par_gpu_iter = new float[size];
 
-    float lower_bound = 0.0;
-    float upper_bound = 10.0;
+    float lower_bound = -1.0;
+    float upper_bound = 1.0;
     std::cout << "gen start" << std::endl;
     std::uniform_real_distribution<float> unif_f(lower_bound, upper_bound);
     std::default_random_engine re;
@@ -164,27 +184,27 @@ int main(int argc, char** argv) {
         float num_f = unif_f(re);
         A_seq_com[i] = A_seq[i] = A_par_gpu_eps[i] = A_par_gpu_iter[i] = num_f;
         if (i % size == i / size)
-            A_seq_com[i] = A_seq[i] = A_par_gpu_eps[i] = A_par_gpu_iter[i] = static_cast<float>(size *10) + num_f;
+            A_seq_com[i] = A_seq[i] = A_par_gpu_eps[i] = A_par_gpu_iter[i] = static_cast<float>(size) + num_f;
     }
     for (int i = 0; i < size; ++i) {
         float num_f = unif_f(re);
-        b_seq_com[i] = b_seq[i] = b_par_gpu_eps[i] = b_par_gpu_iter[i] = static_cast<float>(10.0 - num_f);
+        b_seq_com[i] = b_seq[i] = b_par_gpu_eps[i] = b_par_gpu_iter[i] = static_cast<float>(1.0 - num_f);
     }
     std::cout << "gen end" << std::endl;
 
     double start = omp_get_wtime();
-    SequentialGaussMethod(A_seq, b_seq, x_seq, size);
+    SequentialJacobiMethod(A_seq, b_seq, x_seq, size, 100);
     double end = omp_get_wtime();
     std::cout << "Sequential Gauss method time - " << end - start << std::endl;
-    std::cout << "Gauss check result - " << (CheckResult(A_seq_com, b_seq_com, x_seq, size, 0.001) ? "true" : "false") << std::endl;
+    std::cout << "Gauss check result - " << (CheckResult(A_seq_com, b_seq_com, x_seq, size, 0.1) ? "true" : "false") << std::endl;
 
     ParallelOpenCLJacobiEPS(argv[0], 256, size, A_par_gpu_eps, b_par_gpu_eps, x_par_gpu_eps, 0.000001);
     std::cout << "Jacobi EPS compare with Gauss - " << (IsEqual(x_seq, x_par_gpu_eps, size, 0.001) ? "true" : "false") << std::endl;
-    //std::cout << "Jacobi EPS check result - " << (CheckResult(A_par_gpu_eps, b_par_gpu_eps, x_par_gpu_eps, size, 0.001) ? "true" : "false") << std::endl;
+    std::cout << "Jacobi EPS check result - " << (CheckResult(A_par_gpu_eps, b_par_gpu_eps, x_par_gpu_eps, size, 0.1) ? "true" : "false") << std::endl;
 
     ParallelOpenCLJacobiIter(argv[0], 256, size, A_par_gpu_iter, b_par_gpu_iter, x_par_gpu_iter, 45);
     std::cout << "Jacobi Iter compare with Gauss - " << (IsEqual(x_seq, x_par_gpu_iter, size, 0.001) ? "true" : "false") << std::endl;
-    //std::cout << "Jacobi Iter check result - " << (CheckResult(A_par_gpu_iter, b_par_gpu_iter, x_par_gpu_iter, size, 0.001) ? "true" : "false") << std::endl;
+    std::cout << "Jacobi Iter check result - " << (CheckResult(A_par_gpu_iter, b_par_gpu_iter, x_par_gpu_iter, size, 0.1) ? "true" : "false") << std::endl;
 
     delete[] A_seq_com;
     delete[] b_seq_com;
