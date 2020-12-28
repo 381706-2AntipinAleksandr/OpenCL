@@ -1,41 +1,20 @@
-__kernel void JacobiEPS(__global float* A, __global float* b, __global float* x, const unsigned int size, const double eps) {
+__kernel void Jacobi(__global float* A, __global float* b, __global float* x, __global float* x_current,
+                     const unsigned int size, const float eps, const int iter, __global int* iter_count) {
     int tid_x = get_global_id(0);
-    float x_k = 1.0;
-    float x_k_1 = 0.0;
     float bi = b[tid_x];
     float aii = A[tid_x * size + tid_x];
-    while ((double)(fabs(x_k - x_k_1)) > eps) {
+    do {
         float sum = 0.0;
-        for (size_t i = 0; i < size; ++i) {
-            if (i == tid_x)
-                continue;
-            sum += x_k * A[tid_x * size + i];
-        }
-        //printf("%f\n", sum);
-        x_k = x_k_1;
-        x_k_1 = (bi - sum) / aii;
-    }
-    //printf("i - %d, %f\n", tid_x, x_k_1);
-    x[tid_x] = x_k_1;
-}
-
-__kernel void JacobiIter(__global float* A, __global float* b, __global float* x, const unsigned int size, const int iter) {
-    int tid_x = get_global_id(0);
-    float x_k = 1.0;
-    float x_k_1 = 0.0;
-    float bi = b[tid_x];
-    float aii = A[tid_x * size + tid_x];
-    for (int j = 0; j < iter; ++j) {
-        float sum = 0.0;
-        for (size_t i = 0; i < size; ++i) {
-            if (i == tid_x)
-                continue;
-            sum += x_k * A[tid_x * size + i];
-        }
-        //printf("%f\n", sum);
-        x_k = x_k_1;
-        x_k_1 = (bi - sum) / aii;
-    }
-    //printf("%f\n", x_k_1);
-    x[tid_x] = x_k_1;
+        for (size_t j = 0; j < size; ++j)
+            if (j != tid_x)
+                sum += x_current[tid_x] * A[tid_x * size + j];
+        x[tid_x] = x_current[tid_x];
+        //printf("id - %d, %f\n", tid_x, x[tid_x]);
+        x_current[tid_x] = (bi - sum) / aii;
+        if (tid_x == 0)
+            ++(*iter_count);
+        barrier(CLK_GLOBAL_MEM_FENCE);
+    } while (*iter_count < iter && fabs(x_current[0] - x[0]) > eps);
+    if (tid_x == 0)
+        printf("iter count - %d\n", *iter_count);
 }

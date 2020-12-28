@@ -7,13 +7,6 @@
 #include <sstream>
 #include "../../../init.h"
 
-float isZero(const float number) {
-    if (number < 0.0000000000001)
-        return 0.0;
-    else
-        return number;
-}
-
 bool IsEqual(const float* a, const float* b, const size_t n, const float eps) {
     for (size_t i = 0; i < n; ++i) {
         if (std::abs(a[i] - b[i]) > eps) {
@@ -66,106 +59,92 @@ void SequentialGaussMethod(float* A, float* b, float* x, const size_t size) {
             bool moreRow = leaderRow >= 0.0 ? true : false;
             if ((moreElem && moreRow) || (!moreElem && !moreRow)) {
                 for (size_t cols = k; cols < size; ++cols) {
-                    A[rows * size + cols] = /*isZero*/(A[rows * size + cols] -
+                    A[rows * size + cols] = (A[rows * size + cols] -
                         A[k * size + cols] * std::abs(leaderRow / leaderElem));
                 }
-                b[rows] = /*isZero*/(b[rows] - b[k] * std::abs(leaderRow / leaderElem));
+                b[rows] = (b[rows] - b[k] * std::abs(leaderRow / leaderElem));
             }
             else {
                 for (size_t cols = k; cols < size; ++cols) {
-                    A[rows * size + cols] = /*isZero*/(A[rows * size + cols] +
+                    A[rows * size + cols] = (A[rows * size + cols] +
                         A[k * size + cols] * std::abs(leaderRow / leaderElem));
                 }
-                b[rows] = /*isZero*/(b[rows] + b[k] * std::abs(leaderRow / leaderElem));
+                b[rows] = (b[rows] + b[k] * std::abs(leaderRow / leaderElem));
             }
         }
     }
     for (int i = size - 1; i >= 0; --i) {
         float res = 0.0;
         for (size_t j = size - 1; j >= i + 1; --j) {
-            res = /*isZero*/(res + A[i * size + j] * x[j]);
+            res = (res + A[i * size + j] * x[j]);
         }
-        res = /*isZero*/((b[i] - res) / A[i * size + i]);
+        res = ((b[i] - res) / A[i * size + i]);
         x[i] = res;
     }
 }
 
-void SequentialJacobiMethod(float* A, float* b, float* x, const size_t size, const int iter) {
-    for (size_t i = 0; i < size; ++i) {
-        float x_k = 1.0;
-        float x_k_1 = 0.0;
-        for (int j = 0; j < iter; ++j) {
+void SequentialJacobiMethod(float* A, float* b, float* x, const size_t size, const float eps, const int iter) {
+    float* x_current = new float[size] { 1.0 };
+    int iter_count = 0;
+    do {
+        for (size_t i = 0; i < size; ++i) {
             float sum = 0.0;
-            for (size_t k = 0; k < size; ++k) {
-                if (k == i)
-                    continue;
-                sum += x_k * A[i * size + k];
-            }
-            //printf("%f\n", sum);
-            x_k = x_k_1;
-            x_k_1 = (b[i] - sum) / A[i * size + i];
+            for (size_t j = 0; j < size; ++j)
+                if (j != i)
+                    sum += x_current[j] * A[i * size + j];
+            x[i] = x_current[i];
+            x_current[i] = (b[i] - sum) / A[i * size + i];
         }
-        //printf("%f\n", x_k_1);
-        x[i] = x_k_1;
-    }
+        ++iter_count;
+    } while (std::fabs(x_current[0] - x[0]) > eps && iter_count < iter);
+    if (iter_count >= iter)
+        std::cout << "Count of iteretions - " << iter_count << std::endl;
+    delete[] x_current;
 }
 
-void ParallelOpenCLJacobiEPS(const char* path, const size_t group, const unsigned int size,
-                             float* A, float* b, float* x, const double eps) {
+void ParallelOpenCLJacobi(const char* path, const size_t group, const unsigned int size,
+                          float* A, float* b, float* x, float* x_current, const float eps, const int iter) {
     size_t group_size[] = { group };
     size_t size_n[] = { size };
+    int iter_count[] = { 0 };
     OCLInitialization pr(path, 1, group_size, size_n);
-    pr.AddKernel("JacobiEPS");
+    pr.AddKernel("Jacobi");
     pr.AddBuffer<float>(CL_MEM_READ_ONLY, size * size);
     pr.AddBuffer<float>(CL_MEM_READ_ONLY, size);
-    pr.AddBuffer<float>(CL_MEM_WRITE_ONLY, size);
+    pr.AddBuffer<float>(CL_MEM_READ_WRITE, size);
+    pr.AddBuffer<float>(CL_MEM_READ_WRITE, size);
+    pr.AddBuffer<float>(CL_MEM_READ_WRITE, 1);
     pr.WriteElementsToBuffer(0, size * size, A);
     pr.WriteElementsToBuffer(1, size, b);
+    pr.WriteElementsToBuffer(2, size, x);
+    pr.WriteElementsToBuffer(3, size, x_current);
+    pr.WriteElementsToBuffer(4, 1, iter_count);
     pr.SetKernelArg(pr.GetKernel(0), 0, &pr.GetBuffer(0));
     pr.SetKernelArg(pr.GetKernel(0), 1, &pr.GetBuffer(1));
     pr.SetKernelArg(pr.GetKernel(0), 2, &pr.GetBuffer(2));
-    pr.SetKernelArg(pr.GetKernel(0), 3, &size);
-    pr.SetKernelArg(pr.GetKernel(0), 4, &eps);
+    pr.SetKernelArg(pr.GetKernel(0), 3, &pr.GetBuffer(3));
+    pr.SetKernelArg(pr.GetKernel(0), 4, &size);
+    pr.SetKernelArg(pr.GetKernel(0), 5, &eps);
+    pr.SetKernelArg(pr.GetKernel(0), 6, &iter);
+    pr.SetKernelArg(pr.GetKernel(0), 7, &pr.GetBuffer(4));
     double start = omp_get_wtime();
     pr.ExecuteKernel(pr.GetKernel(0));
     double end = omp_get_wtime();
-    std::cout << "GPU Jacobi EPS - " << end - start << std::endl;
+    std::cout << "GPU Jacobi - " << end - start << std::endl;
     pr.ReadElementsFromBuffer(2, size, x);
 }
-
-void ParallelOpenCLJacobiIter(const char* path, const size_t group, const unsigned int size,
-                              float* A, float* b, float* x, const int iter) {
-    size_t group_size[] = { group };
-    size_t size_n[] = { size };
-    OCLInitialization pr(path, 1, group_size, size_n);
-    pr.AddKernel("JacobiIter");
-    pr.AddBuffer<float>(CL_MEM_READ_ONLY, size * size);
-    pr.AddBuffer<float>(CL_MEM_READ_ONLY, size);
-    pr.AddBuffer<float>(CL_MEM_WRITE_ONLY, size);
-    pr.WriteElementsToBuffer(0, size * size, A);
-    pr.WriteElementsToBuffer(1, size, b);
-    pr.SetKernelArg(pr.GetKernel(0), 0, &pr.GetBuffer(0));
-    pr.SetKernelArg(pr.GetKernel(0), 1, &pr.GetBuffer(1));
-    pr.SetKernelArg(pr.GetKernel(0), 2, &pr.GetBuffer(2));
-    pr.SetKernelArg(pr.GetKernel(0), 3, &size);
-    pr.SetKernelArg(pr.GetKernel(0), 4, &iter);
-    double start = omp_get_wtime();
-    pr.ExecuteKernel(pr.GetKernel(0));
-    double end = omp_get_wtime();
-    std::cout << "GPU Jacobi Iter - " << end - start << std::endl;
-    pr.ReadElementsFromBuffer(2, size, x);
-}
-
 
 int main(int argc, char** argv) {
-    const size_t size = 2048;
-
-    float* A_seq_com = new float[size * size];
-    float* b_seq_com = new float[size];
+    const size_t size = 4096;
 
     float* A_seq = new float[size * size];
     float* b_seq = new float[size];
     float* x_seq = new float[size];
+    
+    float* A_par_gpu = new float[size * size];
+    float* b_par_gpu = new float[size];
+    float* x_par_gpu = new float[size] { 0.0 };
+    float* x_curr_par_gpu = new float[size] { 1.0 };
 
     float* A_par_gpu_eps = new float[size * size];
     float* b_par_gpu_eps = new float[size];
@@ -182,36 +161,34 @@ int main(int argc, char** argv) {
     std::default_random_engine re;
     for (int i = 0; i < size * size; ++i) {
         float num_f = unif_f(re);
-        A_seq_com[i] = A_seq[i] = A_par_gpu_eps[i] = A_par_gpu_iter[i] = num_f;
+        A_par_gpu[i] = A_seq[i] = A_par_gpu_eps[i] = A_par_gpu_iter[i] = num_f;
         if (i % size == i / size)
-            A_seq_com[i] = A_seq[i] = A_par_gpu_eps[i] = A_par_gpu_iter[i] = static_cast<float>(size) + num_f;
+            A_par_gpu[i] = A_seq[i] = A_par_gpu_eps[i] = A_par_gpu_iter[i] = static_cast<float>(size) + num_f;
     }
     for (int i = 0; i < size; ++i) {
         float num_f = unif_f(re);
-        b_seq_com[i] = b_seq[i] = b_par_gpu_eps[i] = b_par_gpu_iter[i] = static_cast<float>(1.0 - num_f);
+        b_par_gpu[i] = b_seq[i] = b_par_gpu_eps[i] = b_par_gpu_iter[i] = static_cast<float>(1.0 - num_f);
     }
     std::cout << "gen end" << std::endl;
 
     double start = omp_get_wtime();
-    SequentialJacobiMethod(A_seq, b_seq, x_seq, size, 100);
+    SequentialJacobiMethod(A_seq, b_seq, x_seq, size, 0.0000001, 45);
     double end = omp_get_wtime();
-    std::cout << "Sequential Gauss method time - " << end - start << std::endl;
-    std::cout << "Gauss check result - " << (CheckResult(A_seq_com, b_seq_com, x_seq, size, 0.1) ? "true" : "false") << std::endl;
+    std::cout << "Sequential Jacobi method time - " << end - start << std::endl;
+    std::cout << "Jacobi check result - " << (CheckResult(A_seq, b_seq, x_seq, size, 0.001) ? "true" : "false") << std::endl;
 
-    ParallelOpenCLJacobiEPS(argv[0], 256, size, A_par_gpu_eps, b_par_gpu_eps, x_par_gpu_eps, 0.000001);
-    std::cout << "Jacobi EPS compare with Gauss - " << (IsEqual(x_seq, x_par_gpu_eps, size, 0.001) ? "true" : "false") << std::endl;
-    std::cout << "Jacobi EPS check result - " << (CheckResult(A_par_gpu_eps, b_par_gpu_eps, x_par_gpu_eps, size, 0.1) ? "true" : "false") << std::endl;
-
-    ParallelOpenCLJacobiIter(argv[0], 256, size, A_par_gpu_iter, b_par_gpu_iter, x_par_gpu_iter, 45);
-    std::cout << "Jacobi Iter compare with Gauss - " << (IsEqual(x_seq, x_par_gpu_iter, size, 0.001) ? "true" : "false") << std::endl;
-    std::cout << "Jacobi Iter check result - " << (CheckResult(A_par_gpu_iter, b_par_gpu_iter, x_par_gpu_iter, size, 0.1) ? "true" : "false") << std::endl;
-
-    delete[] A_seq_com;
-    delete[] b_seq_com;
+    ParallelOpenCLJacobi(argv[0], 256, size, A_par_gpu, b_par_gpu, x_par_gpu, x_curr_par_gpu, 0.0000001, 45);
+    std::cout << "Jacobi compare with Sequential Jacobi - " << (IsEqual(x_seq, x_par_gpu, size, 0.000001) ? "true" : "false") << std::endl;
+    std::cout << "Jacobi check result - " << (CheckResult(A_par_gpu, b_par_gpu, x_par_gpu, size, 0.01) ? "true" : "false") << std::endl;
 
     delete[] A_seq;
     delete[] b_seq;
     delete[] x_seq;
+    
+    delete[] A_par_gpu;
+    delete[] b_par_gpu;
+    delete[] x_par_gpu;
+    delete[] x_curr_par_gpu;
 
     delete[] A_par_gpu_eps;
     delete[] b_par_gpu_eps;
