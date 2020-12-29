@@ -22,7 +22,7 @@ bool CheckResult(float* A, float* b, float* x, const size_t size, const float ep
         float b_res = 0.0;
         for (size_t j = 0; j < size; ++j)
             b_res += A[i * size + j] * x[j];
-        if (std::abs(b_res - b[i]) > eps) {
+        if (std::fabs(b_res - b[i]) / std::fabs(b_res) > eps) {
             std::cout << "i - " << i << ", " << b_res << " - " << b[i] << "\t";
             return false;
         }
@@ -84,7 +84,7 @@ void SequentialGaussMethod(float* A, float* b, float* x, const size_t size) {
 }
 
 void SequentialJacobiMethod(float* A, float* b, float* x, const size_t size, const float eps, const int iter) {
-    float* x_current = new float[size] { 1.0 };
+    float* x_current = new float[size] { 0.0 };
     int iter_count = 0;
     do {
         for (size_t i = 0; i < size; ++i) {
@@ -96,7 +96,7 @@ void SequentialJacobiMethod(float* A, float* b, float* x, const size_t size, con
             x_current[i] = (b[i] - sum) / A[i * size + i];
         }
         ++iter_count;
-    } while (std::fabs(x_current[0] - x[0]) > eps && iter_count < iter);
+    } while (std::fabs(x_current[0] - x[0]) / std::fabs(x[0]) > eps && iter_count < iter);
     if (iter_count >= iter)
         std::cout << "Count of iteretions - " << iter_count << std::endl;
     delete[] x_current;
@@ -144,7 +144,7 @@ int main(int argc, char** argv) {
     float* A_par_gpu = new float[size * size];
     float* b_par_gpu = new float[size];
     float* x_par_gpu = new float[size] { 0.0 };
-    float* x_curr_par_gpu = new float[size] { 1.0 };
+    float* x_curr_par_gpu = new float[size] { 0.0 };
 
     float* A_par_gpu_eps = new float[size * size];
     float* b_par_gpu_eps = new float[size];
@@ -172,14 +172,14 @@ int main(int argc, char** argv) {
     std::cout << "gen end" << std::endl;
 
     double start = omp_get_wtime();
-    SequentialJacobiMethod(A_seq, b_seq, x_seq, size, 0.0000001, 45);
+    SequentialJacobiMethod(A_seq, b_seq, x_seq, size, 0.00000001, 45);
     double end = omp_get_wtime();
     std::cout << "Sequential Jacobi method time - " << end - start << std::endl;
-    std::cout << "Jacobi check result - " << (CheckResult(A_seq, b_seq, x_seq, size, 0.001) ? "true" : "false") << std::endl;
+    std::cout << "Jacobi check result - " << (CheckResult(A_seq, b_seq, x_seq, size, 0.00001) ? "true" : "false") << std::endl;
 
     ParallelOpenCLJacobi(argv[0], 256, size, A_par_gpu, b_par_gpu, x_par_gpu, x_curr_par_gpu, 0.0000001, 45);
     std::cout << "Jacobi compare with Sequential Jacobi - " << (IsEqual(x_seq, x_par_gpu, size, 0.000001) ? "true" : "false") << std::endl;
-    std::cout << "Jacobi check result - " << (CheckResult(A_par_gpu, b_par_gpu, x_par_gpu, size, 0.01) ? "true" : "false") << std::endl;
+    std::cout << "Jacobi check result - " << (CheckResult(A_par_gpu, b_par_gpu, x_par_gpu, size, 0.00001) ? "true" : "false") << std::endl;
 
     delete[] A_seq;
     delete[] b_seq;
